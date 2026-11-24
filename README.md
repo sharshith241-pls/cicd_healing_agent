@@ -24,14 +24,15 @@ python -m venv .venv
 pip install -r requirements.txt
 Copy-Item .env.example .env
 # Add your credentials to .env before running.
-uvicorn backend.main:app --host 127.0.0.1 --port 8001
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Open [http://127.0.0.1:8001/](http://127.0.0.1:8001/) for the UI,
-[http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) for the API, or
-`http://127.0.0.1:8001/health` for the health check. For static-frontend local
-development, `python serve.py` serves port 8000 and the page sends API requests
-to the backend on port 8001.
+The root-level `main.py` exports `app` for deployment platforms that scan
+default FastAPI entrypoint locations. Locally, open
+[http://127.0.0.1:8000/](http://127.0.0.1:8000/) for the UI,
+[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for the API, or
+`http://127.0.0.1:8000/health` for the health check. For separate static-frontend
+development, `python serve.py` serves port 8000 and the API can run on port 8001.
 
 ## Supported test detection
 
@@ -65,7 +66,7 @@ the repository context automatically.
 Start the ASGI app with:
 
 ```sh
-uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"
+uvicorn main:app --host 0.0.0.0 --port "${PORT:-8000}"
 ```
 
 Configure `OPENROUTER_API_KEY` and, when needed, `GITHUB_TOKEN` as deployment
