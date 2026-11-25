@@ -5,6 +5,8 @@ from uuid import uuid4
 import json
 import logging
 import os
+import shutil
+import subprocess
 from urllib import error, request
 from urllib.parse import urlparse
 
@@ -370,6 +372,49 @@ def health() -> dict[str, object]:
             "memory_statistics": "/error-memory/statistics",
             "docs": "/docs",
         },
+    }
+
+
+@app.get("/docker-status")
+def docker_status() -> dict[str, object]:
+    """Report whether this runner can reach its configured Docker daemon."""
+
+    docker = shutil.which("docker")
+    if docker is None:
+        return {
+            "available": False,
+            "message": "Docker CLI was not found. Install Docker Desktop and restart the runner.",
+        }
+
+    try:
+        result = subprocess.run(
+            [docker, "info", "--format", "{{.ServerVersion}}|{{.OSType}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "available": False,
+            "message": "Docker did not respond within 8 seconds. Check that Docker Desktop is fully started.",
+        }
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        return {
+            "available": False,
+            "message": detail or "Docker CLI could not connect to the Docker daemon.",
+        }
+
+    server_version, _, operating_system = result.stdout.strip().partition("|")
+    return {
+        "available": True,
+        "message": "Docker Engine is ready.",
+        "server_version": server_version,
+        "operating_system": operating_system,
     }
 
 

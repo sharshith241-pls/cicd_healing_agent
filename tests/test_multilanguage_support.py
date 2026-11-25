@@ -118,6 +118,20 @@ def test_repository_context_skips_oversized_files(tmp_path):
     assert collect_repository_sources(tmp_path) == {"small.rs": "pub fn main() {}"}
 
 
+def test_repository_changes_reject_invalid_python_syntax_before_writing(tmp_path):
+    source = tmp_path / "app.py"
+    source.write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid Python syntax"):
+        apply_file_changes(
+            tmp_path,
+            {"app.py": "def add(a, b)\n    return a + b\n"},
+            {"app.py"},
+        )
+
+    assert source.read_text(encoding="utf-8") == "def add(a, b):\n    return a + b\n"
+
+
 def test_openrouter_changes_support_multiple_files_and_only_context_paths(tmp_path, monkeypatch):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.go").write_text("package app\n", encoding="utf-8")
@@ -145,3 +159,29 @@ def test_openrouter_changes_support_multiple_files_and_only_context_paths(tmp_pa
 def test_openrouter_response_rejects_non_json():
     with pytest.raises(RuntimeError, match="valid JSON"):
         ai._parse_file_changes("not JSON")
+
+
+def test_openrouter_requests_bounded_output_and_reports_empty_finish_reason(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"choices":[{"message":{"content":""},"finish_reason":"length"}]}'
+
+    captured_request = {}
+
+    def fake_urlopen(api_request, timeout):
+        captured_request["payload"] = json.loads(api_request.data)
+        return Response()
+
+    monkeypatch.setattr(ai, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(ai.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="larger output limit"):
+        ai._call_openrouter("repair prompt")
+
+    assert captured_request["payload"]["max_tokens"] == 4096

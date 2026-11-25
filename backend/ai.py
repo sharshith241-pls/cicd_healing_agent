@@ -181,6 +181,7 @@ def _call_openrouter(prompt: str) -> str:
             }
         ],
         "temperature": 0.1,
+        "max_tokens": 4096,
     }
 
     body = json.dumps(
@@ -234,14 +235,8 @@ def _call_openrouter(prompt: str) -> str:
         parsed = json.loads(
             response_data
         )
-
-        content = parsed[
-            "choices"
-        ][0][
-            "message"
-        ][
-            "content"
-        ]
+        choice = parsed["choices"][0]
+        content = choice["message"]["content"]
 
     except (
         KeyError,
@@ -258,8 +253,16 @@ def _call_openrouter(prompt: str) -> str:
         not isinstance(content, str)
         or not content.strip()
     ):
+        finish_reason = choice.get("finish_reason", "unknown")
+        guidance = (
+            " The selected model exhausted its output budget; choose a model "
+            "with a larger output limit or provide a focused target file."
+            if finish_reason == "length"
+            else ""
+        )
         raise RuntimeError(
-            "OpenRouter returned an empty response."
+            f"OpenRouter returned an empty response (finish reason: {finish_reason})."
+            f"{guidance}"
         )
 
     return content.strip()

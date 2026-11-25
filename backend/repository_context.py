@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path, PurePosixPath
 
@@ -148,6 +149,13 @@ def apply_file_changes(
             raise ValueError(f"AI requested a file outside the supplied context: {relative_path}")
         if not path.is_file() or _is_sensitive(path):
             raise ValueError(f"AI requested an unavailable or excluded file: {relative_path}")
+        if path.suffix.lower() == ".py":
+            try:
+                ast.parse(content, filename=normalized)
+            except SyntaxError as exc:
+                raise ValueError(
+                    f"AI returned invalid Python syntax for {normalized}: {exc.msg}"
+                ) from exc
 
         validated.append((normalized, path, content))
 
