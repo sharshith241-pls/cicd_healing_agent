@@ -96,10 +96,21 @@ test commands directly on this computer when Docker is unavailable. The
 website's runner status shows which mode is active. The browser and companion
 must be on the same computer. Allow the browser's local-network permission if
 prompted. OpenRouter credentials and SQLite error memory remain on that computer.
-The production site at `https://cicd-healing-agent-two.vercel.app` is allowed
-by default. If you use a different Vercel deployment URL, add its origin to
-`CICD_ALLOWED_ORIGINS` in `.env`, separated from any other origins by commas,
-then restart the companion.
+The production site at `https://cicd-healing-agent-two.vercel.app` and
+`https://cicd-healing-agent-ecef1tnnc-harshith-ss-projects-d748a198.vercel.app`
+are allowed by default. If you use a different Vercel deployment URL, add its
+origin to `CICD_ALLOWED_ORIGINS` in `.env`, separated from any other origins by
+commas, then restart the companion.
+
+Commits created by the pipeline use the `CICD Healing Agent` identity by
+default, without changing your global Git configuration. To customize the
+commit author, set `CICD_GIT_USER_NAME` and `CICD_GIT_USER_EMAIL` in `.env`.
+`GITHUB_TOKEN` is still required to push the repair branch and create a pull
+request. For a fine-grained GitHub token, select the target repository and
+grant **Contents: Read and write** and **Pull requests: Read and write**. A
+classic token needs the `repo` scope. The token's account must have write
+access to the repository (and organization SSO authorization, if applicable).
+After changing `GITHUB_TOKEN` in `.env`, restart `python local_runner.py`.
 
 ## Deployment notes
 

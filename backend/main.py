@@ -60,6 +60,7 @@ app = FastAPI(
 if os.getenv("CICD_LOCAL_RUNNER") == "1":
     allowed_origins = [
         "https://cicd-healing-agent-35debo89o-harshith-ss-projects-d748a198.vercel.app",
+        "https://cicd-healing-agent-ecef1tnnc-harshith-ss-projects-d748a198.vercel.app",
         "https://cicd-healing-agent-two.vercel.app",
         "http://127.0.0.1:8000",
         "http://localhost:8000",

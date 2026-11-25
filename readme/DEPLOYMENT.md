@@ -44,6 +44,7 @@ normally, then let users select **My Docker (this device)** in the web UI. The
 user must clone/download the project, configure their own `.env`, start Docker,
 and launch `python local_runner.py`. This loopback-only companion processes the
 repository and retains its API key, error-memory database, and workspace
-locally. The production origin `https://cicd-healing-agent-two.vercel.app` is
-allowed by default. If the deployment URL changes, allow that exact origin
+locally. The production origin `https://cicd-healing-agent-two.vercel.app` and
+`https://cicd-healing-agent-ecef1tnnc-harshith-ss-projects-d748a198.vercel.app`
+are allowed by default. If the deployment URL changes, allow that exact origin
 through `CICD_ALLOWED_ORIGINS` in the companion's local `.env` and restart it.
