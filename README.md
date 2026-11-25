@@ -105,14 +105,36 @@ commas, then restart the companion.
 Commits created by the pipeline use the `CICD Healing Agent` identity by
 default, without changing your global Git configuration. To customize the
 commit author, set `CICD_GIT_USER_NAME` and `CICD_GIT_USER_EMAIL` in `.env`.
-`GITHUB_TOKEN` is still required to push the repair branch and create a pull
-request. For a fine-grained GitHub token, select the target repository and
-grant **Contents: Read and write** and **Pull requests: Read and write**. A
-classic token needs the `repo` scope. The token's account must have write
-access to the repository (and organization SSO authorization, if applicable).
-If a push is denied, the run result links to GitHub token settings and shows
-the required permissions. After changing `GITHUB_TOKEN` in `.env`, restart
+To push the repair branch and create a pull request, either configure
+`GITHUB_TOKEN` or use the GitHub App authorization below. For a fine-grained
+personal access token, select the target repository and grant
+**Contents: Read and write** and **Pull requests: Read and write**. A classic
+token needs the `repo` scope. The token's account must have write access to the
+repository (and organization SSO authorization, if applicable). If a push is
+denied, the run result links to GitHub token settings and shows the required
+permissions. After changing `GITHUB_TOKEN` in `.env`, restart
 `python local_runner.py`.
+
+### One-click GitHub authorization (recommended)
+
+To let users authorize their own repositories in the website instead of
+manually creating a token, the app owner must register a GitHub App once:
+
+1. In GitHub Developer Settings, create a GitHub App and enable **Device flow**.
+2. Set repository permissions **Contents: Read and write** and
+   **Pull requests: Read and write**.
+3. Configure the app's public Client ID as `GITHUB_APP_CLIENT_ID` in the
+   local runner's `.env`, and its URL slug as `GITHUB_APP_SLUG`.
+4. Install the GitHub App on the repositories the user wants to repair. Users
+   can then click **Connect GitHub** in the website, enter the one-time code on
+   GitHub, and approve access.
+
+The Client ID and app slug are not secrets. Each user's access and refresh
+tokens are saved only in that user's local, gitignored `.env`; the browser
+never receives the token. Access tokens are refreshed automatically. The GitHub
+App can only modify repositories where it is installed and the authorizing user
+has write access. See [GitHub's GitHub App device-flow guide](https://docs.github.com/apps/creating-github-apps/writing-code-for-a-github-app/building-a-cli-with-a-github-app)
+and [user access token guide](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app).
 
 ## Deployment notes
 

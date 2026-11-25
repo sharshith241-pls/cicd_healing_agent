@@ -9,7 +9,7 @@ from urllib import error, request
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -26,6 +26,7 @@ from backend.docker_runner import get_docker_status
 from backend.error_database import ErrorDatabase
 from backend.error_analyzer import ErrorAnalyzer, ErrorInfo
 from backend.fix_engine import FixEngine
+from backend.github_auth import GitHubAuthError, GitHubDeviceAuth
 from backend.repository_context import (
     apply_file_changes,
     collect_repository_sources,
@@ -90,6 +91,11 @@ app.add_middleware(
 # ============================================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+github_device_auth = GitHubDeviceAuth(
+    os.getenv("GITHUB_APP_CLIENT_ID"),
+    PROJECT_ROOT / ".env",
+    os.getenv("GITHUB_APP_SLUG"),
+)
 
 DB_URL = os.getenv(
     "DATABASE_URL",
@@ -138,6 +144,10 @@ WORKSPACE_DIR.mkdir(
 class AnalyzeRequest(BaseModel):
     repo_url: str = Field(..., min_length=1)
     branch: str | None = Field(None, min_length=1)
+
+
+class GitHubDevicePollRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=64)
 
 
 class FixAndPushRequest(BaseModel):
@@ -202,7 +212,7 @@ def _get_github_token(
     if provided_token:
         return provided_token
 
-    return os.getenv("GITHUB_TOKEN")
+    return github_device_auth.get_token()
 
 
 def _get_github_repo_info(
@@ -346,6 +356,35 @@ def root() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "frontend.html")
 
 
+@app.get("/github-auth/status")
+def github_auth_status() -> dict[str, object]:
+    if os.getenv("CICD_LOCAL_RUNNER") != "1":
+        raise HTTPException(status_code=404, detail="Not found.")
+    return github_device_auth.status()
+
+
+@app.post("/github-auth/device")
+def start_github_device_authorization() -> dict[str, object]:
+    if os.getenv("CICD_LOCAL_RUNNER") != "1":
+        raise HTTPException(status_code=404, detail="Not found.")
+    try:
+        return github_device_auth.start()
+    except GitHubAuthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/github-auth/poll")
+def poll_github_device_authorization(
+    payload: GitHubDevicePollRequest,
+) -> dict[str, object]:
+    if os.getenv("CICD_LOCAL_RUNNER") != "1":
+        raise HTTPException(status_code=404, detail="Not found.")
+    try:
+        return github_device_auth.poll(payload.session_id)
+    except GitHubAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     return {
@@ -465,9 +504,10 @@ def fix_and_push_repository(
         or f"cicd-fix-{job_id[:8]}"
     )
 
-    github_token = _get_github_token(
-        payload.github_token
-    )
+    try:
+        github_token = _get_github_token(payload.github_token)
+    except GitHubAuthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     logs: list[str] = []
 
@@ -493,6 +533,7 @@ def fix_and_push_repository(
             payload.repo_url,
             repo_path,
             branch=payload.source_branch,
+            github_token=github_token,
         )
 
         logs.append(

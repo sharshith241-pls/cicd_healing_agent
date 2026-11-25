@@ -73,6 +73,12 @@
         .permission-help strong { display:block; margin-bottom:5px; }
         .permission-link { display:inline-block; margin-top:10px; padding:9px 12px; border-radius:8px; color:#fff; background:#405c93; font-weight:800; text-decoration:none; }
         .permission-link:hover { background:#304a7d; }
+        .github-access { margin-top:12px; padding:18px 22px; }
+        .github-access-copy { margin:8px 0 12px; color:var(--muted); font-size:.8rem; line-height:1.5; }
+        .github-auth-steps { margin-top:12px; padding:13px; border-radius:10px; background:var(--wash); font-size:.82rem; line-height:1.5; }
+        .github-user-code { display:inline-block; margin:4px 0; padding:5px 9px; border-radius:6px; color:var(--ink); background:#e9eef6; font:900 1.1rem Consolas,monospace; letter-spacing:.12em; }
+        .github-auth-link { color:#405c93; font-weight:900; }
+        .github-install-link { display:block; margin-top:8px; }
         footer { margin-top:22px; color:var(--muted); font-size:.74rem; text-align:center; }
         @media (max-width:1100px) { .command { grid-template-columns:minmax(220px,1fr) minmax(130px,.55fr) minmax(180px,.8fr); } .command .primary { grid-column:3; } }
         @media (max-width:950px) { .command,.lower { grid-template-columns:1fr; } .command .primary { grid-column:auto; } .primary { width:100%; } .stage-rail { grid-template-columns:repeat(4,1fr); gap:22px 0; } .stage-rail::before { display:none; } }
@@ -89,6 +95,17 @@
             <button class="primary" id="startBtn" type="submit">Start pipeline</button>
         </form>
         <div id="runnerNotice" class="runner-notice offline" role="status" aria-live="polite"><span id="noticeMark" class="notice-mark" aria-hidden="true">!</span><div class="notice-copy"><strong id="runnerTitle">Checking local companion…</strong><span id="runnerDescription">Looking for the runner on this computer.</span></div><button id="checkRunner" class="notice-action" type="button" onclick="checkRunnerConnection()">Check connection</button></div>
+        <section class="panel github-access" aria-labelledby="githubAccessTitle">
+            <div class="section-title"><h2 id="githubAccessTitle">GitHub repository access</h2><strong id="githubAuthStatus">Checking connection…</strong></div>
+            <p class="github-access-copy" id="githubAuthDescription">Connect your GitHub account to authorize repository access. Your token stays on this computer.</p>
+            <button class="notice-action" id="connectGithub" type="button" onclick="connectGitHub()" disabled>Connect GitHub</button>
+            <div class="github-auth-steps" id="githubAuthSteps" hidden>
+                <span id="githubAuthProgress">Enter this one-time code on GitHub:</span><br>
+                <strong class="github-user-code" id="githubUserCode"></strong><br>
+                <a class="github-auth-link" id="githubVerificationLink" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">Open GitHub to authorize</a>
+                <a class="github-auth-link github-install-link" id="githubInstallLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Install the CICD GitHub App on repositories</a>
+            </div>
+        </section>
         <section class="panel pipeline"><div class="pipeline-head"><h2>Pipeline activity</h2><span class="run-state" id="runState">Waiting for a repository</span></div><div class="stage-rail" id="stageRail">
             <div class="stage" data-stage="clone"><div class="node">01</div><span class="stage-name">Clone</span><span class="stage-detail">Repository</span></div>
             <div class="stage" data-stage="docker"><div class="node">02</div><span class="stage-name">Test</span><span class="stage-detail">Local auto-runner</span></div>
@@ -116,6 +133,86 @@
             document.getElementById('runnerDescription').textContent = description;
             document.getElementById('noticeMark').textContent = state === 'online' ? '✓' : state === 'checking' ? '…' : '!';
             connection.classList.add(state);
+        }
+        async function refreshGitHubAuthStatus() {
+            const button = document.getElementById('connectGithub');
+            const statusText = document.getElementById('githubAuthStatus');
+            const description = document.getElementById('githubAuthDescription');
+            try {
+                const response = await fetch(`${LOCAL_RUNNER_BASE}/github-auth/status`, {cache:'no-store'});
+                const status = await readApiResponse(response);
+                button.disabled = !status.configured;
+                if (!status.configured) {
+                    statusText.textContent = 'Not configured';
+                    description.textContent = 'The app owner must configure a GitHub App Client ID in the local runner once. Users will then authorize their own GitHub accounts here.';
+                    return;
+                }
+                statusText.textContent = status.connected ? 'Connected' : 'Not connected';
+                description.textContent = status.connected
+                    ? status.message
+                    : 'Authorize the GitHub App for your account. Install it on the repositories you want this pipeline to access.';
+                button.textContent = status.connected ? 'Reconnect GitHub' : 'Connect GitHub';
+                setGitHubInstallLink(status.install_url);
+            } catch (error) {
+                button.disabled = true;
+                statusText.textContent = 'Runner unavailable';
+                description.textContent = error.message;
+            }
+        }
+        function setGitHubInstallLink(url) {
+            const link = document.getElementById('githubInstallLink');
+            if (url) {
+                link.href = url;
+                link.hidden = false;
+            } else {
+                link.hidden = true;
+                link.removeAttribute('href');
+            }
+        }
+        async function connectGitHub() {
+            const button = document.getElementById('connectGithub');
+            const steps = document.getElementById('githubAuthSteps');
+            const progress = document.getElementById('githubAuthProgress');
+            button.disabled = true;
+            button.textContent = 'Starting authorization…';
+            try {
+                const startResponse = await fetch(`${LOCAL_RUNNER_BASE}/github-auth/device`, {method:'POST'});
+                const device = await readApiResponse(startResponse);
+                document.getElementById('githubUserCode').textContent = device.user_code;
+                document.getElementById('githubVerificationLink').href = device.verification_uri;
+                setGitHubInstallLink(device.install_url);
+                steps.hidden = false;
+                progress.textContent = 'Enter this one-time code on GitHub and approve access:';
+                button.textContent = 'Waiting for GitHub…';
+                const expiresAt = Date.now() + device.expires_in * 1000;
+                let retryAfter = device.interval;
+                while (Date.now() < expiresAt) {
+                    await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+                    const pollResponse = await fetch(`${LOCAL_RUNNER_BASE}/github-auth/poll`, {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({session_id:device.session_id})
+                    });
+                    const result = await readApiResponse(pollResponse);
+                    if (result.authorized) {
+                        progress.textContent = result.message;
+                        document.getElementById('githubAuthStatus').textContent = 'Connected';
+                        document.getElementById('githubAuthDescription').textContent = result.message;
+                        button.textContent = 'Reconnect GitHub';
+                        return;
+                    }
+                    retryAfter = result.retry_after || device.interval;
+                    progress.textContent = 'Waiting for you to approve access on GitHub…';
+                }
+                throw new Error('GitHub authorization timed out. Start again to get a new code.');
+            } catch (error) {
+                progress.textContent = error.message;
+                steps.hidden = false;
+                button.textContent = 'Try again';
+                await refreshGitHubAuthStatus();
+            } finally {
+                button.disabled = false;
+            }
         }
         async function checkRunnerConnection() {
             const connectionText = document.getElementById('connectionText');
@@ -232,6 +329,7 @@
             }
         }
         checkRunnerConnection();
+        refreshGitHubAuthStatus();
         async function copyLog() { const errors = latestLog.includes('FAILURES') ? latestLog.slice(latestLog.indexOf('FAILURES')) : latestLog; if (errors && navigator.clipboard) await navigator.clipboard.writeText(errors); }
     </script>
 </body>

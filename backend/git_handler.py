@@ -1,15 +1,23 @@
 from pathlib import Path
 import subprocess
 import os
+import base64
 from dotenv import load_dotenv
 
 load_dotenv()
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import urlparse
 
 
-def clone_repo(repo_url: str, path: str | Path, branch: str | None = None) -> None:
+def clone_repo(
+    repo_url: str,
+    path: str | Path,
+    branch: str | None = None,
+    github_token: str | None = None,
+) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if github_token:
+        _validate_github_remote(repo_url)
 
     command = ["git", "clone"]
     if branch:
@@ -21,6 +29,7 @@ def clone_repo(repo_url: str, path: str | Path, branch: str | None = None) -> No
         capture_output=True,
         text=True,
         check=False,
+        env=_git_auth_environment(github_token) if github_token else None,
     )
 
     if result.returncode != 0:
@@ -77,16 +86,38 @@ def commit_all_changes(repo_path: str | Path, commit_message: str) -> None:
         raise RuntimeError(logs or "Failed to commit changes.")
 
 
-def _build_authenticated_url(remote_url: str, github_token: str) -> str:
+def _build_authorization_header(github_token: str) -> str:
+    credentials = f"x-access-token:{github_token}".encode("utf-8")
+    return base64.b64encode(credentials).decode("ascii")
+
+
+def _git_auth_environment(github_token: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    try:
+        config_index = int(environment.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError as exc:
+        raise RuntimeError("Invalid inherited Git configuration.") from exc
+
+    environment["GIT_CONFIG_COUNT"] = str(config_index + 1)
+    environment[f"GIT_CONFIG_KEY_{config_index}"] = "http.extraheader"
+    environment[f"GIT_CONFIG_VALUE_{config_index}"] = (
+        f"AUTHORIZATION: basic {_build_authorization_header(github_token)}"
+    )
+    return environment
+
+
+def _validate_github_remote(remote_url: str) -> None:
     parsed = urlparse(remote_url)
-    if parsed.scheme != "https" or not parsed.netloc:
-        raise RuntimeError("Only HTTPS remote URLs are supported for token-based push.")
-
-    host = parsed.netloc.split("@")[-1]
-    safe_token = quote(github_token, safe="")
-    auth_netloc = f"x-access-token:{safe_token}@{host}"
-
-    return urlunparse((parsed.scheme, auth_netloc, parsed.path, "", "", ""))
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "github.com"
+        or parsed.username
+        or parsed.password
+        or parsed.port not in (None, 443)
+    ):
+        raise RuntimeError(
+            "GitHub tokens can only be sent to HTTPS remotes hosted on github.com."
+        )
 
 
 def push_branch(repo_path: str | Path, branch_name: str, github_token: str) -> None:
@@ -96,13 +127,21 @@ def push_branch(repo_path: str | Path, branch_name: str, github_token: str) -> N
         raise RuntimeError(logs or "Failed to resolve origin remote URL.")
 
     remote_url = remote_result.stdout.strip()
-    authenticated_url = _build_authenticated_url(remote_url, github_token)
+    _validate_github_remote(remote_url)
 
     push_result = subprocess.run(
-        ["git", "-C", str(repo_path), "push", authenticated_url, f"HEAD:{branch_name}"],
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "push",
+            "origin",
+            f"HEAD:{branch_name}",
+        ],
         capture_output=True,
         text=True,
         check=False,
+        env=_git_auth_environment(github_token),
     )
 
     if push_result.returncode != 0:
