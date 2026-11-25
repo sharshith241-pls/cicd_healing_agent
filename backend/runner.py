@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import Any
 
 from backend.ai import generate_repository_changes
-from backend.docker_runner import DockerRunner
+from backend.docker_runner import DockerRunner, get_docker_status
 from backend.error_analyzer import ErrorAnalyzer, ErrorInfo
 from backend.error_database import ErrorDatabase
 from backend.fix_engine import FixEngine
 from backend.log_processor import LogProcessor
+from backend.native_runner import NativeRunner
 from backend.repository_context import (
     apply_file_changes,
     collect_repository_sources,
@@ -42,19 +43,33 @@ logger = logging.getLogger(__name__)
 
 
 def run_tests(repo_path: str | Path) -> dict[str, object]:
-    """Run repository tests inside Docker."""
+    """Run tests in Docker when available, otherwise directly on this machine."""
 
-    runner = DockerRunner(repo_path)
+    docker_status = get_docker_status()
+    if docker_status["available"]:
+        runner = DockerRunner(repo_path)
+        runner_mode = "docker"
+        runner_message = "Docker is available; tests run in an isolated container."
+    else:
+        runner = NativeRunner(repo_path)
+        runner_mode = "native"
+        runner_message = (
+            f"Docker is unavailable ({docker_status['message']}); running tests "
+            "directly on this computer without container isolation. Only run "
+            "repositories you trust."
+        )
+
     result = runner.run()
 
     return {
         "success": result["success"],
-        "output": result["logs"],
+        "output": f"[RUNNER] {runner_message}\n{result['logs']}",
         "stdout": result["stdout"],
         "stderr": result["stderr"],
         "exit_code": result["exit_code"],
         "error": result["error"],
         "project_type": result.get("project_type"),
+        "runner_mode": runner_mode,
     }
 
 
@@ -168,17 +183,27 @@ def self_heal_repository(
     logs.append(f"Target context: {target_label}")
     logs.append("")
 
-    logs.append(
-        "[1] Running initial tests inside Docker..."
-    )
+    logs.append("[1] Running initial tests with the local auto-runner...")
 
     initial_result = run_tests(repository)
+    logs.append(str(initial_result["output"]).splitlines()[0])
     if initial_result.get("project_type"):
         logs.append(f"[DETECT] Project type: {initial_result['project_type']}")
 
     latest_output = str(
         initial_result["output"]
     )
+
+    if initial_result["exit_code"] == -1:
+        logs.append(f"[RUNNER ERROR] {initial_result['error']}")
+        db.close()
+        return {
+            "success": False,
+            "fix_method": "none",
+            "attempts": 0,
+            "memory_used": False,
+            "logs": "\n".join(logs),
+        }
 
     if initial_result["success"]:
 
@@ -429,9 +454,7 @@ def self_heal_repository(
         # RE-TEST
         # -----------------------------------------------------------
 
-        logs.append(
-            "[2] Re-running tests inside Docker..."
-        )
+        logs.append("[2] Re-running tests with the local auto-runner...")
 
         retest_result = run_tests(
             repository
@@ -440,6 +463,10 @@ def self_heal_repository(
         latest_output = str(
             retest_result["output"]
         )
+
+        if retest_result["exit_code"] == -1:
+            logs.append(f"[RUNNER ERROR] {retest_result['error']}")
+            break
 
         if retest_result["success"]:
 

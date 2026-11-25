@@ -27,13 +27,63 @@ from typing import Any
 from uuid import uuid4
 
 
-def detect_project_type(repo_path: str | Path) -> str:
+def get_docker_status() -> dict[str, Any]:
+    """Return whether the Docker CLI can reach a daemon."""
+
+    docker = shutil.which("docker")
+    if docker is None:
+        return {
+            "available": False,
+            "message": "Docker CLI was not found.",
+        }
+
+    try:
+        result = subprocess.run(
+            [docker, "info", "--format", "{{.ServerVersion}}|{{.OSType}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "available": False,
+            "message": "Docker did not respond within 8 seconds.",
+        }
+    except OSError as exc:
+        return {
+            "available": False,
+            "message": f"Unable to start the Docker CLI: {exc}",
+        }
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        return {
+            "available": False,
+            "message": detail or "Docker CLI could not connect to the daemon.",
+        }
+
+    server_version, _, operating_system = result.stdout.strip().partition("|")
+    return {
+        "available": True,
+        "message": "Docker Engine is ready.",
+        "server_version": server_version,
+        "operating_system": operating_system,
+    }
+
+
+def detect_project_type(
+    repo_path: str | Path,
+    prefer_dockerfile: bool = True,
+) -> str:
     """Detect a supported test runtime or a repository-provided Dockerfile."""
 
     repository = Path(repo_path)
     if not repository.is_dir():
         raise ValueError(f"Repository does not exist: {repository}")
-    if (repository / "Dockerfile").is_file():
+    if prefer_dockerfile and (repository / "Dockerfile").is_file():
         return "custom"
     if (repository / "pom.xml").is_file() or (
         (repository / "build.gradle").is_file()
@@ -197,35 +247,8 @@ class DockerRunner:
                 f"{self.repo_path}"
             )
 
-        if shutil.which("docker") is None:
-            return (
-                "Docker executable was not found. "
-                "Make sure Docker Desktop is installed and running."
-            )
-
-        try:
-            result = subprocess.run(
-                ["docker", "info"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=15,
-                check=False,
-            )
-
-            if result.returncode != 0:
-                return (
-                    "Docker is installed but the Docker daemon "
-                    "is not available. Start Docker Desktop."
-                )
-
-        except Exception as exc:
-            return (
-                f"Unable to communicate with Docker: {exc}"
-            )
-
-        return None
+        status = get_docker_status()
+        return None if status["available"] else str(status["message"])
 
     def _create_dockerfile(self, project_type: str) -> Path:
         """Create a temporary Dockerfile for the detected test runtime."""

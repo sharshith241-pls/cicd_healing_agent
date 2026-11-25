@@ -5,8 +5,6 @@ from uuid import uuid4
 import json
 import logging
 import os
-import shutil
-import subprocess
 from urllib import error, request
 from urllib.parse import urlparse
 
@@ -24,6 +22,7 @@ from backend.git_handler import (
     push_branch,
 )
 from backend.runner import run_tests
+from backend.docker_runner import get_docker_status
 from backend.error_database import ErrorDatabase
 from backend.error_analyzer import ErrorAnalyzer, ErrorInfo
 from backend.fix_engine import FixEngine
@@ -352,7 +351,7 @@ def health() -> dict[str, object]:
         "message": "CICD Self-Healing Pipeline backend is running.",
         "version": "1.0.0",
         "features": [
-            "Docker test execution",
+            "Automatic local Docker or native test execution",
             "Error analysis",
             "Error memory",
             "AI repair",
@@ -375,46 +374,29 @@ def health() -> dict[str, object]:
     }
 
 
-@app.get("/docker-status")
-def docker_status() -> dict[str, object]:
-    """Report whether this runner can reach its configured Docker daemon."""
+@app.get("/runner-status")
+def runner_status() -> dict[str, object]:
+    """Report which local execution mode the companion will use."""
 
-    docker = shutil.which("docker")
-    if docker is None:
+    status = get_docker_status()
+    if status["available"]:
         return {
-            "available": False,
-            "message": "Docker CLI was not found. Install Docker Desktop and restart the runner.",
+            **status,
+            "mode": "docker",
+            "message": (
+                "Docker is ready. Supported project tests will run in an isolated "
+                "container."
+            ),
         }
 
-    try:
-        result = subprocess.run(
-            [docker, "info", "--format", "{{.ServerVersion}}|{{.OSType}}"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=8,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            "available": False,
-            "message": "Docker did not respond within 8 seconds. Check that Docker Desktop is fully started.",
-        }
-
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        return {
-            "available": False,
-            "message": detail or "Docker CLI could not connect to the Docker daemon.",
-        }
-
-    server_version, _, operating_system = result.stdout.strip().partition("|")
     return {
         "available": True,
-        "message": "Docker Engine is ready.",
-        "server_version": server_version,
-        "operating_system": operating_system,
+        "mode": "native",
+        "docker_message": status["message"],
+        "message": (
+            "Docker is unavailable. Supported tests will run directly on this "
+            "computer without container isolation. Only run repositories you trust."
+        ),
     }
 
 
@@ -605,6 +587,18 @@ def fix_and_push_repository(
         str(initial_tests["output"])
     )
 
+    if initial_tests.get("exit_code") == -1:
+        logs.append("[RUNNER ERROR] Test execution could not be started.")
+        return {
+            "job_id": job_id,
+            "success": False,
+            "pushed": False,
+            "pull_request_created": False,
+            "branch_name": branch_name,
+            "memory_used": False,
+            "logs": _join_logs(logs),
+        }
+
     if initial_tests["success"]:
 
         logs.append(
@@ -766,6 +760,10 @@ def fix_and_push_repository(
                     final_tests["output"]
                 )
 
+                if final_tests.get("exit_code") == -1:
+                    logs.append("[RUNNER ERROR] Test execution could not be started.")
+                    break
+
                 if final_tests["success"]:
 
                     fix_succeeded = True
@@ -863,6 +861,10 @@ def fix_and_push_repository(
                 latest_test_output = str(
                     final_tests["output"]
                 )
+
+                if final_tests.get("exit_code") == -1:
+                    logs.append("[RUNNER ERROR] Test execution could not be started.")
+                    break
 
                 if final_tests["success"]:
 
@@ -1006,7 +1008,7 @@ def fix_and_push_repository(
             "- Analyzed failure\n"
             "- Generated/retrieved repair\n"
             "- Applied repair\n"
-            "- Re-ran tests inside Docker\n"
+            "- Re-ran tests with the local auto-runner\n"
             "- Tests passed\n"
             "- Created Git branch\n"
             "- Committed repair\n"

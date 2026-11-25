@@ -1,16 +1,18 @@
 # CICD Self-Healing Agent
 
 A FastAPI application that clones a Git repository, detects a Python, Node.js,
-Java, or Go project, runs its tests in Docker, and can ask OpenRouter to repair
-multiple existing source files. A successful repair is re-tested before the
-optional GitHub branch, commit, push, and pull-request steps.
+Java, or Go project, runs its tests locally, and can ask OpenRouter to repair
+multiple existing source files. It automatically uses Docker when available and
+otherwise uses installed local runtimes. A successful repair is re-tested before
+the optional GitHub branch, commit, push, and pull-request steps.
 
 ## Requirements
 
 - Python 3.10 or later
-- Docker Engine/Desktop with a working daemon
+- Docker Engine/Desktop (recommended for isolation; optional)
 - Git
 - An OpenRouter API key for AI repair
+- The target project's runtime and test dependencies if Docker is unavailable
 - A GitHub token with repository write access for push/PR delivery
 
 The GitHub token is optional; without it, cloning and local repair still work,
@@ -45,13 +47,15 @@ The runner detects a root-level manifest and uses the matching command:
 | Java | `pom.xml`, `build.gradle`, or `build.gradle.kts` | `mvn -B test` or `gradle test --no-daemon` |
 | Go | `go.mod` | `go test ./...` |
 
-Tests and dependency installation run in a temporary language-specific Docker
-image. Repositories need a root manifest and a working test command. Any
-UTF-8-readable source, test, and configuration file can be included in the
-bounded repair context. Other runtimes can provide a root `Dockerfile` whose
-default command runs tests; that Dockerfile is used as-is. Projects requiring
-custom services or multiple independent packages may need a project-specific
-runner.
+When Docker is available, tests and dependency installation run in a temporary
+language-specific Docker image. Without Docker, tests run directly on the
+computer using its installed Python, Node.js, Maven/Gradle, or Go tools; project
+dependencies must already be installed. Direct execution is not isolated, so
+only run repositories you trust. Repositories need a root manifest and a
+working test command. Any UTF-8-readable source, test, and configuration file
+can be included in the bounded repair context. A custom root `Dockerfile`
+requires Docker. Projects requiring custom services or multiple independent
+packages may need a project-specific runner.
 
 ## Multi-file repair
 
@@ -65,10 +69,10 @@ test command. If repair attempts fail, the original source context is restored.
 The target-file field is optional; leaving it blank asks the agent to analyze
 the repository context automatically.
 
-## Use your own Docker
+## Use the local runner
 
-The Vercel-hosted site cannot access a visitor's Docker daemon. To use Docker
-on your computer, install Python and Git, then run these PowerShell commands:
+The Vercel-hosted site cannot access a visitor's computer. Install Python and
+Git, then run these PowerShell commands:
 
 ```powershell
 git clone https://github.com/sharshith241-pls/cicd_healing_agent.git
@@ -79,19 +83,19 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Add your `OPENROUTER_API_KEY` to `.env`, start Docker Desktop/Engine, and run:
+Add your `OPENROUTER_API_KEY` to `.env`. Start Docker Desktop/Engine if you have
+it, then run:
 
 ```powershell
 python local_runner.py
 ```
 
-Keep that process running, open the Vercel website, and select **My Docker
-(this device)** as the test runner. The browser sends the job to a companion
-bound only to `127.0.0.1:8765`; it clones and tests the repository locally.
-The website's runner status shows whether the companion is reachable; use
-**Check connection** after starting it. The browser and companion must be on
-the same computer. Allow the browser's local-network permission if prompted.
-OpenRouter credentials and SQLite error memory remain on that computer.
+Keep that process running and open the Vercel website. There is one automatic
+local runner: it uses Docker when its daemon is available, or runs supported
+test commands directly on this computer when Docker is unavailable. The
+website's runner status shows which mode is active. The browser and companion
+must be on the same computer. Allow the browser's local-network permission if
+prompted. OpenRouter credentials and SQLite error memory remain on that computer.
 The production site at `https://cicd-healing-agent-two.vercel.app` is allowed
 by default. If you use a different Vercel deployment URL, add its origin to
 `CICD_ALLOWED_ORIGINS` in `.env`, separated from any other origins by commas,
@@ -109,7 +113,7 @@ Configure `OPENROUTER_API_KEY` and, when needed, `GITHUB_TOKEN` as deployment
 secrets. Set `DATABASE_URL` to a persistent SQLite location or PostgreSQL
 database if error memory must survive restarts.
 
-Vercel can host the UI/API, but its serverless functions cannot use a visitor's
+Vercel can host the UI, but its serverless functions cannot use a visitor's
 Docker daemon. Use the local companion above or deploy a separate, isolated,
-access-controlled Docker worker. Never expose an unrestricted Docker socket to
-a public API: it clones and executes repositories supplied by callers.
+access-controlled worker. Never expose an unrestricted Docker socket to a
+public API: it clones and executes repositories supplied by callers.

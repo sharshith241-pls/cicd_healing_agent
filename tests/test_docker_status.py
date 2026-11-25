@@ -1,13 +1,13 @@
 from types import SimpleNamespace
 
 from backend import main
+from backend.docker_runner import get_docker_status
 
 
 def test_docker_status_reports_ready_engine(monkeypatch):
-    monkeypatch.setattr(main.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr("backend.docker_runner.shutil.which", lambda _: "docker")
     monkeypatch.setattr(
-        main.subprocess,
-        "run",
+        "backend.docker_runner.subprocess.run",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0,
             stdout="28.5.1|linux",
@@ -15,7 +15,7 @@ def test_docker_status_reports_ready_engine(monkeypatch):
         ),
     )
 
-    assert main.docker_status() == {
+    assert get_docker_status() == {
         "available": True,
         "message": "Docker Engine is ready.",
         "server_version": "28.5.1",
@@ -23,10 +23,15 @@ def test_docker_status_reports_ready_engine(monkeypatch):
     }
 
 
-def test_docker_status_explains_missing_docker_cli(monkeypatch):
-    monkeypatch.setattr(main.shutil, "which", lambda _: None)
+def test_runner_status_recommends_native_mode_when_docker_is_missing(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "get_docker_status",
+        lambda: {"available": False, "message": "Docker CLI was not found."},
+    )
 
-    result = main.docker_status()
+    status = main.runner_status()
 
-    assert result["available"] is False
-    assert "Docker CLI was not found" in result["message"]
+    assert status["available"] is True
+    assert status["mode"] == "native"
+    assert "without container isolation" in status["message"]
