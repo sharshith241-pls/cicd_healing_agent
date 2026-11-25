@@ -150,7 +150,7 @@
                 statusText.textContent = status.connected ? 'Connected' : 'Not connected';
                 description.textContent = status.connected
                     ? status.message
-                    : 'Authorize the GitHub App for your account. Install it on the repositories you want this pipeline to access.';
+                    : status.message + ' Install the GitHub App on the repositories you want this pipeline to access.';
                 button.textContent = status.connected ? 'Reconnect GitHub' : 'Connect GitHub';
                 setGitHubInstallLink(status.install_url);
             } catch (error) {

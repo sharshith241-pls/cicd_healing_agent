@@ -57,6 +57,13 @@ class GitHubDeviceAuth:
                 "message": "Connect GitHub to authorize repository pushes and pull requests.",
                 "install_url": self._install_url(),
             }
+        if os.getenv("GITHUB_AUTH_METHOD") != "github_app":
+            return {
+                "configured": True,
+                "connected": False,
+                "message": "A personal access token is configured. Connect the GitHub App here to authorize access without manual token setup.",
+                "install_url": self._install_url(),
+            }
 
         return {
             "configured": True,
@@ -208,6 +215,13 @@ class GitHubDeviceAuth:
         access_token = str(response_data["access_token"])
         set_key(str(self.env_path), "GITHUB_TOKEN", access_token, quote_mode="always")
         os.environ["GITHUB_TOKEN"] = access_token
+        set_key(
+            str(self.env_path),
+            "GITHUB_AUTH_METHOD",
+            "github_app",
+            quote_mode="always",
+        )
+        os.environ["GITHUB_AUTH_METHOD"] = "github_app"
 
         refresh_token = response_data.get("refresh_token")
         if refresh_token:

@@ -1,3 +1,4 @@
+import os
 import json
 import time
 
@@ -65,6 +66,7 @@ def test_device_authorization_saves_token_only_after_user_approval(
 
     assert result["authorized"] is True
     assert "ghu_access" not in result
+    assert os.environ["GITHUB_AUTH_METHOD"] == "github_app"
     saved = env_path.read_text(encoding="utf-8")
     assert "GITHUB_TOKEN='ghu_access'" in saved
     assert "GITHUB_REFRESH_TOKEN='ghr_refresh'" in saved
@@ -109,3 +111,18 @@ def test_status_requires_app_configuration_and_connected_token(tmp_path, monkeyp
         "connected": False,
         "message": "GitHub App authorization is not configured.",
     }
+
+
+def test_personal_token_does_not_count_as_github_app_authorization(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("GITHUB_TOKEN", "fine-grained-personal-token")
+    monkeypatch.delenv("GITHUB_TOKEN_EXPIRES_AT", raising=False)
+    monkeypatch.delenv("GITHUB_AUTH_METHOD", raising=False)
+    auth = GitHubDeviceAuth("public-client-id", tmp_path / ".env")
+
+    status = auth.status()
+
+    assert status["configured"] is True
+    assert status["connected"] is False
+    assert "personal access token is configured" in status["message"]
