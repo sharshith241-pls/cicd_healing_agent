@@ -3,6 +3,7 @@ CICD Error Memory
 SQLite backend for storing errors, successful fixes, logs and similarities.
 """
 
+import json
 import logging
 import sqlite3
 import zlib
@@ -439,12 +440,36 @@ class ErrorDatabase:
         treated as trusted memory.
         """
 
+        fixes = self.get_fixes_for_error(error_id)
+        for fix in fixes:
+            try:
+                changes = json.loads(fix["fixed_code"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+
+            if (
+                isinstance(changes, dict)
+                and changes
+                and all(
+                    isinstance(path, str) and isinstance(code, str)
+                    for path, code in changes.items()
+                )
+            ):
+                return fix
+
+        return fixes[0] if fixes else None
+
+    def get_fixes_for_error(
+        self,
+        error_id: int,
+    ) -> list[dict]:
+        """Return all trusted fixes, ordered from most to least successful."""
+
         if not self.conn:
-            return None
+            return []
 
         try:
             cursor = self.conn.cursor()
-
             cursor.execute(
                 """
                 SELECT *
@@ -454,27 +479,16 @@ class ErrorDatabase:
                   AND success_rate >= 0.90
                 ORDER BY success_rate DESC,
                          applied_count DESC,
-                         created_at DESC
-                LIMIT 1
+                         created_at DESC,
+                         id DESC
                 """,
                 (error_id,),
             )
-
-            row = cursor.fetchone()
-
-            if not row:
-                return None
-
-            return dict(row)
+            return [dict(row) for row in cursor.fetchall()]
 
         except sqlite3.Error as exc:
-
-            logger.error(
-                "Failed to retrieve fix: %s",
-                exc,
-            )
-
-            return None
+            logger.error("Failed to retrieve fixes: %s", exc)
+            return []
 
     def store_fix(
         self,
