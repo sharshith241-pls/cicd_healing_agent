@@ -36,3 +36,13 @@ controlled worker and authenticate requests to the web API.
 The GitHub token must have permission to create branches, push commits, and
 open pull requests in repositories selected by the operator. Keep secrets out
 of source control and never put them in the frontend.
+
+## Vercel frontend with the visitor's Docker
+
+Vercel Functions cannot connect to a visitor's Docker daemon. Deploy the UI/API
+normally, then let users select **My Docker (this device)** in the web UI. The
+user must clone/download the project, configure their own `.env`, start Docker,
+and launch `python local_runner.py`. This loopback-only companion processes the
+repository and retains its API key, error-memory database, and workspace
+locally. If the deployment URL changes, the user must allow that exact origin
+through `CICD_ALLOWED_ORIGINS` in the companion's local `.env`.

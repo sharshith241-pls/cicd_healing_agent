@@ -28,11 +28,13 @@ from uuid import uuid4
 
 
 def detect_project_type(repo_path: str | Path) -> str:
-    """Detect one supported test runtime from root-level project manifests."""
+    """Detect a supported test runtime or a repository-provided Dockerfile."""
 
     repository = Path(repo_path)
     if not repository.is_dir():
         raise ValueError(f"Repository does not exist: {repository}")
+    if (repository / "Dockerfile").is_file():
+        return "custom"
     if (repository / "pom.xml").is_file() or (
         (repository / "build.gradle").is_file()
         or (repository / "build.gradle.kts").is_file()
@@ -65,7 +67,7 @@ def detect_project_type(repo_path: str | Path) -> str:
 
 
 class DockerRunner:
-    """Execute a Python repository inside Docker."""
+    """Execute a supported repository test suite inside Docker."""
 
     def __init__(
         self,
@@ -248,6 +250,11 @@ COPY . /app
 CMD ["go", "test", "./..."]
 """,
         }
+        if project_type == "custom":
+            dockerfile = self.repo_path / "Dockerfile"
+            if not dockerfile.is_file():
+                raise ValueError("Custom Docker runner requires a root Dockerfile.")
+            return dockerfile
         if project_type == "java":
             if (self.repo_path / "pom.xml").is_file():
                 content = """FROM maven:3.9-eclipse-temurin-17
@@ -357,7 +364,7 @@ CMD ["sh", "-c", "if [ -f gradlew ]; then chmod +x gradlew && ./gradlew test --n
         """Remove the temporary Dockerfile."""
 
         try:
-            if dockerfile.exists():
+            if dockerfile.name.startswith("Dockerfile.cicd-") and dockerfile.exists():
                 dockerfile.unlink()
         except OSError:
             pass

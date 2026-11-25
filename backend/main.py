@@ -56,11 +56,27 @@ app = FastAPI(
     version="1.0.0",
 )
 
+if os.getenv("CICD_LOCAL_RUNNER") == "1":
+    allowed_origins = [
+        "https://cicd-healing-agent-35debo89o-harshith-ss-projects-d748a198.vercel.app",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8001",
+        "http://localhost:8001",
+    ]
+    allowed_origins.extend(
+        origin.strip()
+        for origin in os.getenv("CICD_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    )
+else:
+    allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_private_network=os.getenv("CICD_LOCAL_RUNNER") == "1",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

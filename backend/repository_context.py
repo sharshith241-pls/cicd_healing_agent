@@ -1,31 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path, PurePosixPath
 
-
-SOURCE_SUFFIXES = {
-    ".css",
-    ".go",
-    ".html",
-    ".java",
-    ".js",
-    ".jsx",
-    ".json",
-    ".md",
-    ".mjs",
-    ".cjs",
-    ".gradle",
-    ".kts",
-    ".mod",
-    ".py",
-    ".sql",
-    ".toml",
-    ".ts",
-    ".tsx",
-    ".xml",
-    ".yaml",
-    ".yml",
-}
 
 EXCLUDED_DIRECTORIES = {
     ".git",
@@ -43,11 +20,33 @@ EXCLUDED_DIRECTORIES = {
 MAX_SOURCE_FILES = 80
 MAX_FILE_BYTES = 48_000
 MAX_TOTAL_BYTES = 160_000
-SOURCE_FILENAMES = {
-    "go.mod",
-    "go.work",
-    "pipfile",
-    "requirements.txt",
+EXCLUDED_SUFFIXES = {
+    ".7z",
+    ".a",
+    ".class",
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jar",
+    ".jpeg",
+    ".jpg",
+    ".lockb",
+    ".mp3",
+    ".mp4",
+    ".o",
+    ".pdf",
+    ".png",
+    ".pyc",
+    ".so",
+    ".sqlite",
+    ".sqlite3",
+    ".tar",
+    ".wasm",
+    ".webp",
+    ".zip",
 }
 
 
@@ -66,21 +65,29 @@ def collect_repository_sources(
         target_path = _resolve_repository_file(repository, target_file)
         if not target_path.is_file():
             raise FileNotFoundError(f"Target file does not exist: {target_file}")
-        if _is_sensitive(target_path):
-            raise ValueError("Target file is excluded because it may contain secrets.")
+        if _is_sensitive(target_path) or _is_excluded(target_path, repository):
+            raise ValueError("Target file is excluded because it may contain secrets or generated files.")
+        if target_path.suffix.lower() in EXCLUDED_SUFFIXES:
+            raise ValueError("Target file is binary and cannot be sent as text.")
 
     candidates = []
-    for path in repository.rglob("*"):
-        if not path.is_file() or _is_excluded(path, repository):
-            continue
-        if (
-            path.suffix.lower() not in SOURCE_SUFFIXES
-            and path.name.lower() not in SOURCE_FILENAMES
-        ):
-            continue
-        if _is_sensitive(path):
-            continue
-        candidates.append(path)
+    for current_dir, directories, filenames in os.walk(
+        repository,
+        topdown=True,
+        followlinks=False,
+    ):
+        current_path = Path(current_dir)
+        directories[:] = sorted(
+            name
+            for name in directories
+            if name.lower() not in EXCLUDED_DIRECTORIES
+            and not (current_path / name).is_symlink()
+        )
+        for filename in filenames:
+            path = current_path / filename
+            if _is_sensitive(path) or path.suffix.lower() in EXCLUDED_SUFFIXES:
+                continue
+            candidates.append(path)
 
     candidates.sort(key=lambda path: path.relative_to(repository).as_posix())
     if target_path is not None:
@@ -93,17 +100,20 @@ def collect_repository_sources(
         if repository not in resolved_path.parents:
             continue
         try:
-            content = resolved_path.read_text(encoding="utf-8")
+            with resolved_path.open("rb") as source_file:
+                encoded_content = source_file.read(MAX_FILE_BYTES + 1)
+            if len(encoded_content) > MAX_FILE_BYTES:
+                continue
+            content = encoded_content.decode("utf-8")
         except (OSError, UnicodeError):
             continue
 
-        encoded_size = len(content.encode("utf-8"))
-        if encoded_size > MAX_FILE_BYTES or total_bytes + encoded_size > MAX_TOTAL_BYTES:
+        if total_bytes + len(encoded_content) > MAX_TOTAL_BYTES:
             continue
 
         relative_path = path.relative_to(repository).as_posix()
         sources[relative_path] = content
-        total_bytes += encoded_size
+        total_bytes += len(encoded_content)
         if len(sources) >= MAX_SOURCE_FILES:
             break
 

@@ -46,20 +46,52 @@ The runner detects a root-level manifest and uses the matching command:
 | Go | `go.mod` | `go test ./...` |
 
 Tests and dependency installation run in a temporary language-specific Docker
-image. Repositories need a root manifest and a working test command; projects
-that require custom services, unusual toolchains, or multiple independent
-packages may need a project-specific runner.
+image. Repositories need a root manifest and a working test command. Any
+UTF-8-readable source, test, and configuration file can be included in the
+bounded repair context. Other runtimes can provide a root `Dockerfile` whose
+default command runs tests; that Dockerfile is used as-is. Projects requiring
+custom services or multiple independent packages may need a project-specific
+runner.
 
 ## Multi-file repair
 
-OpenRouter receives a bounded set of readable source/configuration files from
-the cloned repository (up to 80 files and 160 KB total), plus the test output.
+OpenRouter receives a bounded set of readable text files from the cloned
+repository (up to 80 files and 160 KB total), plus the test output. This allows
+multi-file repairs across languages when the relevant files fit the context.
 It returns a JSON map of repository-relative paths to complete file contents.
 The backend only applies changes to files included in that context, excludes
 common secret files and build/dependency directories, and re-runs the detected
 test command. If repair attempts fail, the original source context is restored.
 The target-file field is optional; leaving it blank asks the agent to analyze
 the repository context automatically.
+
+## Use your own Docker
+
+The Vercel-hosted site cannot access a visitor's Docker daemon. To use Docker
+on your computer, install Python and Git, then run these PowerShell commands:
+
+```powershell
+git clone https://github.com/sharshith241-pls/cicd_healing_agent.git
+cd cicd_healing_agent
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Add your `OPENROUTER_API_KEY` to `.env`, start Docker Desktop/Engine, and run:
+
+```powershell
+python local_runner.py
+```
+
+Keep that process running, open the Vercel website, and select **My Docker
+(this device)** as the test runner. The browser sends the job to a companion
+bound only to `127.0.0.1:8765`; it clones and tests the repository locally.
+Allow the browser's local-network permission if prompted. OpenRouter credentials
+and SQLite error memory remain on that computer.
+If you use a different Vercel deployment URL, add its origin to
+`CICD_ALLOWED_ORIGINS` in `.env`, separated from any other origins by commas.
 
 ## Deployment notes
 
@@ -73,9 +105,7 @@ Configure `OPENROUTER_API_KEY` and, when needed, `GITHUB_TOKEN` as deployment
 secrets. Set `DATABASE_URL` to a persistent SQLite location or PostgreSQL
 database if error memory must survive restarts.
 
-The API host must also have access to a Docker daemon. Many managed Python web
-services do not provide one, so the UI/API may deploy there while test and
-repair jobs cannot run. For a public deployment, do not expose an unrestricted
-Docker socket to this web process: it clones and executes repositories supplied
-to the API. Use a separately isolated, access-controlled worker/runner for
-untrusted repositories.
+Vercel can host the UI/API, but its serverless functions cannot use a visitor's
+Docker daemon. Use the local companion above or deploy a separate, isolated,
+access-controlled Docker worker. Never expose an unrestricted Docker socket to
+a public API: it clones and executes repositories supplied by callers.

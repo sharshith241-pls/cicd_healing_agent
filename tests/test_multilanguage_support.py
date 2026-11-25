@@ -35,6 +35,20 @@ def test_node_requires_a_test_script(tmp_path):
         detect_project_type(tmp_path)
 
 
+def test_custom_dockerfile_is_used_without_being_removed(tmp_path):
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "FROM rust:1\nCMD [\"cargo\", \"test\"]\n",
+        encoding="utf-8",
+    )
+    runner = DockerRunner(tmp_path)
+
+    assert detect_project_type(tmp_path) == "custom"
+    assert runner._create_dockerfile("custom") == dockerfile
+    runner._remove_dockerfile(dockerfile)
+    assert dockerfile.exists()
+
+
 def test_dockerfile_uses_detected_runtime(tmp_path):
     runner = DockerRunner(tmp_path)
     dockerfile = runner._create_dockerfile("go")
@@ -73,26 +87,35 @@ def test_non_python_test_failures_produce_error_context():
     assert info is not None
     assert info.error_type == "TestFailure"
     assert "Expected 2" in info.error_message
+    assert len(info.error_hash) == 64
 
 
 def test_repository_context_and_changes_are_limited_to_source_files(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.js").write_text("module.exports = 1;\n", encoding="utf-8")
+    (tmp_path / "src" / "lib.rs").write_text("pub fn add(a: i32, b: i32) -> i32 { a + b }\n", encoding="utf-8")
+    (tmp_path / "Makefile").write_text("test:\n\tcargo test\n", encoding="utf-8")
     (tmp_path / ".env").write_text("SECRET=do-not-read\n", encoding="utf-8")
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "dependency.js").write_text("ignored", encoding="utf-8")
 
     sources = collect_repository_sources(tmp_path)
-    assert set(sources) == {"src/app.js"}
+    assert set(sources) == {"src/app.js", "src/lib.rs", "Makefile"}
     assert apply_file_changes(
         tmp_path,
         {"src/app.js": "module.exports = 2;\n"},
         set(sources),
     ) == ["src/app.js"]
     assert (tmp_path / "src" / "app.js").read_text(encoding="utf-8") == "module.exports = 2;\n"
-
     with pytest.raises(ValueError, match="Target paths must stay inside the repository"):
         apply_file_changes(tmp_path, {"../outside.js": "bad"}, set(sources))
+
+
+def test_repository_context_skips_oversized_files(tmp_path):
+    (tmp_path / "large.rs").write_text("x" * 48_001, encoding="utf-8")
+    (tmp_path / "small.rs").write_text("pub fn main() {}", encoding="utf-8")
+
+    assert collect_repository_sources(tmp_path) == {"small.rs": "pub fn main() {}"}
 
 
 def test_openrouter_changes_support_multiple_files_and_only_context_paths(tmp_path, monkeypatch):
