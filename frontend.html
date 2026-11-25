@@ -69,6 +69,10 @@
         .summary strong { color:var(--ink); }
         .summary .big { display:block; margin-bottom:10px; color:var(--ink); font-size:1.35rem; font-weight:900; }
         .error-line { margin-top:16px; padding:12px; border-left:3px solid var(--red); color:#9a3b48; background:#fff3f4; font:.77rem/1.5 Consolas,monospace; white-space:pre-wrap; }
+        .permission-help { margin-top:14px; padding:14px; border:1px solid #f2d9bf; border-radius:11px; color:#66533e; background:#fffaf3; font-size:.8rem; line-height:1.5; }
+        .permission-help strong { display:block; margin-bottom:5px; }
+        .permission-link { display:inline-block; margin-top:10px; padding:9px 12px; border-radius:8px; color:#fff; background:#405c93; font-weight:800; text-decoration:none; }
+        .permission-link:hover { background:#304a7d; }
         footer { margin-top:22px; color:var(--muted); font-size:.74rem; text-align:center; }
         @media (max-width:1100px) { .command { grid-template-columns:minmax(220px,1fr) minmax(130px,.55fr) minmax(180px,.8fr); } .command .primary { grid-column:3; } }
         @media (max-width:950px) { .command,.lower { grid-template-columns:1fr; } .command .primary { grid-column:auto; } .primary { width:100%; } .stage-rail { grid-template-columns:repeat(4,1fr); gap:22px 0; } .stage-rail::before { display:none; } }
@@ -150,7 +154,27 @@
         async function readApiResponse(response) { const text = await response.text(); let data; try { data = JSON.parse(text); } catch { const detail = text.trim().slice(0, 300) || response.statusText || 'empty response'; throw new Error(`Backend returned HTTP ${response.status}: ${detail}`); } if (!response.ok) throw new Error(data.detail || data.error || `Backend returned HTTP ${response.status}`); return data; }
         function setStages(active, completed = [], failed = false) { document.querySelectorAll('.stage').forEach(stage => { stage.classList.remove('active','done','failed'); const name = stage.dataset.stage; if (completed.includes(name)) stage.classList.add('done'); if (name === active) stage.classList.add(failed ? 'failed' : 'active'); }); }
         function stageProgress(logs, success) { const text = String(logs || '').toLowerCase(); const completed = []; if (text.includes('cloned successfully')) completed.push('clone'); if (text.includes('initial result') || text.includes('running initial tests')) completed.push('docker'); if (text.includes('[error]') || text.includes('failures')) completed.push('error'); if (text.includes('noise reduction') || text.includes('filtered log')) completed.push('noise'); if (text.includes('[memory]')) completed.push('memory'); if (text.includes('attempt') || text.includes('ai')) completed.push('repair'); if (success && (text.includes('committed') || text.includes('pushed') || text.includes('pull request') || text.includes('already pass'))) completed.push('result'); const active = success ? null : (completed[completed.length - 1] || 'clone'); setStages(active, success ? stageNames : completed.slice(0, -1), !success); }
-        function renderSummary(data) { const summary = document.getElementById('summary'); const success = data.success === true; let html = `<span class="big">${success ? 'Pipeline completed' : 'Pipeline stopped'}</span>`; if (data.branch_name) html += `<strong>Branch:</strong> ${escapeHtml(data.branch_name)}<br>`; if (data.pushed !== undefined) html += `<strong>Push:</strong> ${data.pushed ? 'Completed' : 'Skipped or failed'}<br>`; if (data.pull_request_created !== undefined) html += `<strong>Pull request:</strong> ${data.pull_request_created ? `<a href="${escapeHtml(data.pull_request_url || '#')}" target="_blank" rel="noreferrer">Open PR</a>` : 'Not created'}<br>`; if (!success) html += `<div class="error-line">${escapeHtml(data.error || 'Check the pipeline log for the failed stage.')}</div>`; else html += '<br>Validated result returned by the backend. Review the log for repair and delivery details.'; summary.innerHTML = html; }
+        function renderSummary(data) {
+            const summary = document.getElementById('summary');
+            const success = data.success === true;
+            let html = `<span class="big">${success ? 'Pipeline completed' : 'Pipeline stopped'}</span>`;
+            if (data.branch_name) html += `<strong>Branch:</strong> ${escapeHtml(data.branch_name)}<br>`;
+            if (data.pushed !== undefined) html += `<strong>Push:</strong> ${data.pushed ? 'Completed' : 'Skipped or failed'}<br>`;
+            if (data.pull_request_created !== undefined) {
+                html += `<strong>Pull request:</strong> ${data.pull_request_created ? `<a href="${escapeHtml(data.pull_request_url || '#')}" target="_blank" rel="noreferrer">Open PR</a>` : 'Not created'}<br>`;
+            }
+            if (!success) {
+                html += `<div class="error-line">${escapeHtml(data.error || 'Check the pipeline log for the failed stage.')}</div>`;
+                const failureDetails = String(data.error || data.logs || latestLog || '');
+                const githubPushDenied = /GitHub denied the push|Permission to .+ denied|write access to repository not granted/i.test(failureDetails);
+                if (githubPushDenied) {
+                    html += '<div class="permission-help"><strong>GitHub push permission is required</strong>Update the token to include this repository with <b>Contents: Read and write</b> and <b>Pull requests: Read and write</b>. The token owner must have write access. Save the token as <code>GITHUB_TOKEN</code> in your local <code>.env</code>, then restart <code>python local_runner.py</code> and rerun the pipeline.<br><a class="permission-link" href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">Manage GitHub tokens</a></div>';
+                }
+            } else {
+                html += '<br>Validated result returned by the backend. Review the log for repair and delivery details.';
+            }
+            summary.innerHTML = html;
+        }
         function escapeHtml(text) { return String(text || '').replace(/[&<>"']/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[char])); }
         async function startPipeline(event) {
             event.preventDefault();

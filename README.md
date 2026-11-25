@@ -110,7 +110,9 @@ request. For a fine-grained GitHub token, select the target repository and
 grant **Contents: Read and write** and **Pull requests: Read and write**. A
 classic token needs the `repo` scope. The token's account must have write
 access to the repository (and organization SSO authorization, if applicable).
-After changing `GITHUB_TOKEN` in `.env`, restart `python local_runner.py`.
+If a push is denied, the run result links to GitHub token settings and shows
+the required permissions. After changing `GITHUB_TOKEN` in `.env`, restart
+`python local_runner.py`.
 
 ## Deployment notes
 
