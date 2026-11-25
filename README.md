@@ -92,8 +92,10 @@ The website's runner status shows whether the companion is reachable; use
 **Check connection** after starting it. The browser and companion must be on
 the same computer. Allow the browser's local-network permission if prompted.
 OpenRouter credentials and SQLite error memory remain on that computer.
-If you use a different Vercel deployment URL, add its origin to
-`CICD_ALLOWED_ORIGINS` in `.env`, separated from any other origins by commas.
+The production site at `https://cicd-healing-agent-two.vercel.app` is allowed
+by default. If you use a different Vercel deployment URL, add its origin to
+`CICD_ALLOWED_ORIGINS` in `.env`, separated from any other origins by commas,
+then restart the companion.
 
 ## Deployment notes
 
